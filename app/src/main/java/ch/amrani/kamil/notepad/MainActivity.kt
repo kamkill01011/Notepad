@@ -1,12 +1,12 @@
 package ch.amrani.kamil.notepad
 
-import android.content.Context
 import android.content.Intent
+import android.icu.text.SimpleDateFormat
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -14,10 +14,15 @@ import androidx.lifecycle.ViewModelProviders
 import ch.amrani.kamil.notepad.database.NoteEntity
 import ch.amrani.kamil.notepad.database.NoteViewModel
 import ch.amrani.kamil.notepad.databinding.ActivityMainBinding
-import kotlinx.serialization.*
-import kotlinx.serialization.json.*
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.util.Date
 
 class MainActivity : AppCompatActivity() {
+    private val selectFileCode = 1
+    private val importFileCode = 2
+    private val format = SimpleDateFormat("yyyy-MM-dd_hh-mm-ss")
     lateinit var viewModel: NoteViewModel
     var lastDeletedNote: NoteEntity? = null
 
@@ -55,20 +60,18 @@ class MainActivity : AppCompatActivity() {
                 val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "application/json"
-                    putExtra(Intent.EXTRA_TITLE, "notepad_export.json")
+                    putExtra(Intent.EXTRA_TITLE, "notepad_export_${format.format(Date())}.json")
                 }
-                startActivityForResult(intent, 1)
-
+                startActivityForResult(intent, selectFileCode)
                 true
             }
             R.id.action_import -> {
-                startActivityForResult(intent, 1)
+                startActivityForResult(intent, selectFileCode)
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "application/json"
                 }
-                startActivityForResult(intent, 2)
-
+                startActivityForResult(intent, importFileCode)
                 true
             }
             R.id.action_settings -> true
@@ -80,7 +83,7 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, resultData)
         if (resultCode == RESULT_OK) {
             when (requestCode) {
-                1 -> {
+                selectFileCode -> {
                     if (resultData != null) {
                         resultData.data?.also { uri ->
                             val values = viewModel.notes.value
@@ -88,17 +91,19 @@ class MainActivity : AppCompatActivity() {
                             val buffer = contentResolver.openOutputStream(uri)?.bufferedWriter()
                             buffer?.write(json)
                             buffer?.flush()
+                            buffer?.close()
                         }
                     }
                 }
-                2 -> {
+                importFileCode -> {
                     if (resultData != null) {
                         resultData.data?.also { uri ->
-                            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-                            contentResolver.openInputStream(uri)?.bufferedReader()?.forEachLine { println(it) }
+                            val inputStream = contentResolver.openInputStream(uri)?.bufferedReader()
+                            val text = inputStream?.readText()
                             val json = Json.decodeFromString<List<NoteEntity>>(text!!)
                             viewModel.deleteAll()
                             json.forEach { viewModel.insert(it) }
+                            inputStream.close()
                         }
                     }
                 }
@@ -121,9 +126,7 @@ class MainActivity : AppCompatActivity() {
         builder.setNegativeButton("Cancel") { _, _ -> }
         val dialog = builder.create()
 
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
-        dialog.setOnDismissListener { imm.toggleSoftInput(InputMethodManager.HIDE_IMPLICIT_ONLY, 0) }
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
 
         editText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
